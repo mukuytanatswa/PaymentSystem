@@ -7,6 +7,7 @@ from app.config.database import AsyncSessionLocal
 from app.config.env import settings
 from app.services import stitch_client
 from app.services.alert_service import send_alert
+from app.services.encryption_service import decrypt
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ async def _retry_failed_splits() -> None:
                         vendor_id=str(row.vendor_id),
                         amount=row.amount,
                         currency=row.currency,
-                        bank_account=row.bank_account,
+                        bank_account=decrypt(row.bank_account),
                         bank_code=row.bank_code,
                         reference=f"{row.id}-attempt-{row.retry_count}",
                     )

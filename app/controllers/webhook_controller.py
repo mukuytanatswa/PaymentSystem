@@ -8,6 +8,7 @@ from app.config.database import AsyncSessionLocal
 from app.models.schemas import StitchWebhookPayload
 from app.services import stitch_client
 from app.services.alert_service import send_alert
+from app.services.encryption_service import decrypt
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
                 vendor_id=str(split.vendor_id),
                 amount=split.amount,
                 currency=payment.currency,
-                bank_account=split.bank_account,
+                bank_account=decrypt(split.bank_account),
                 bank_code=split.bank_code,
                 reference=f"{split.id}-attempt-0",
             )
