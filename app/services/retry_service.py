@@ -35,9 +35,11 @@ async def _retry_failed_splits() -> None:
     if count > settings.max_retry_queue_size:
         await send_alert("retry_queue.overflow", count=count, threshold=settings.max_retry_queue_size)
 
-    # Process one split per transaction. FOR UPDATE OF s SKIP LOCKED ensures two concurrent
-    # workers never attempt the same split simultaneously.
-    for _ in range(count):
+    # Each split gets its own session with FOR UPDATE SKIP LOCKED — safe for parallel execution.
+    # Capped at CONCURRENCY to avoid overwhelming Stitch's API.
+    CONCURRENCY = 10
+
+    async def _process_one() -> None:
         async with AsyncSessionLocal() as session:
             async with session.begin():
                 result = await session.execute(
@@ -57,7 +59,7 @@ async def _retry_failed_splits() -> None:
                 )
                 row = result.fetchone()
                 if not row:
-                    break
+                    return
 
                 try:
                     payout_id = await stitch_client.create_payout(
@@ -90,7 +92,14 @@ async def _retry_failed_splits() -> None:
                             text("UPDATE splits SET retry_count = :count WHERE id = :split_id"),
                             {"count": new_count, "split_id": str(row.id)},
                         )
-                # session.begin() commits here — releases the row lock
+
+    sem = asyncio.Semaphore(CONCURRENCY)
+
+    async def _bounded() -> None:
+        async with sem:
+            await _process_one()
+
+    await asyncio.gather(*[_bounded() for _ in range(count)])
 
 
 async def start_retry_worker() -> None:
