@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.database import AsyncSessionLocal
-from app.models.schemas import StitchWebhookPayload
+from app.models.schemas import PaymentStatus, SplitStatus, StitchWebhookPayload
 from app.services import stitch_client
 from app.services.alert_service import send_alert
 from app.services.encryption_service import decrypt
@@ -19,8 +19,8 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
         if stitch_payment_id:
             async with db.begin():
                 await db.execute(
-                    text("UPDATE payments SET status = 'failed' WHERE stitch_payment_id = :id AND status = 'pending'"),
-                    {"id": stitch_payment_id},
+                    text("UPDATE payments SET status = :failed WHERE stitch_payment_id = :id AND status = :pending"),
+                    {"id": stitch_payment_id, "failed": PaymentStatus.failed.value, "pending": PaymentStatus.pending.value},
                 )
             logger.info("payment_marked_failed", extra={"stitch_payment_id": stitch_payment_id})
         return {"status": "marked_failed"}
@@ -36,11 +36,11 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
         result = await db.execute(
             text("""
                 UPDATE payments
-                SET status = 'processing'
-                WHERE stitch_payment_id = :stitch_id AND status = 'pending'
+                SET status = :processing
+                WHERE stitch_payment_id = :stitch_id AND status = :pending
                 RETURNING id, amount, currency
             """),
-            {"stitch_id": stitch_payment_id},
+            {"stitch_id": stitch_payment_id, "processing": PaymentStatus.processing.value, "pending": PaymentStatus.pending.value},
         )
         payment = result.fetchone()
 
@@ -56,9 +56,9 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
                 SELECT s.id, s.vendor_id, s.amount, v.bank_account, v.bank_code
                 FROM splits s
                 JOIN vendors v ON v.id = s.vendor_id
-                WHERE s.payment_id = :pid AND s.status = 'pending'
+                WHERE s.payment_id = :pid AND s.status = :pending
             """),
-            {"pid": str(payment.id)},
+            {"pid": str(payment.id), "pending": SplitStatus.pending.value},
         )
         splits = splits_rows.fetchall()
 
@@ -76,8 +76,8 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
             async with AsyncSessionLocal() as split_session:
                 async with split_session.begin():
                     await split_session.execute(
-                        text("UPDATE splits SET status = 'paid', payout_id = :payout_id WHERE id = :split_id"),
-                        {"payout_id": payout_id, "split_id": str(split.id)},
+                        text("UPDATE splits SET status = :paid, payout_id = :payout_id WHERE id = :split_id"),
+                        {"paid": SplitStatus.paid.value, "payout_id": payout_id, "split_id": str(split.id)},
                     )
                     await split_session.execute(
                         text("UPDATE vendors SET balance = balance + :amount WHERE id = :vendor_id"),
@@ -86,12 +86,13 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
                     await split_session.execute(
                         text("""
                             INSERT INTO ledger (vendor_id, payment_id, type, amount, balance_after)
-                            SELECT :vendor_id, :payment_id, 'credit', :amount, balance
+                            SELECT :vendor_id, :payment_id, :credit, :amount, balance
                             FROM vendors WHERE id = :vendor_id
                         """),
                         {
                             "vendor_id": str(split.vendor_id),
                             "payment_id": str(payment.id),
+                            "credit": "credit",
                             "amount": str(split.amount),
                         },
                     )
@@ -109,13 +110,13 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
             async with AsyncSessionLocal() as fail_session:
                 async with fail_session.begin():
                     await fail_session.execute(
-                        text("UPDATE splits SET status = 'failed' WHERE id = :split_id"),
-                        {"split_id": str(split.id)},
+                        text("UPDATE splits SET status = :failed WHERE id = :split_id"),
+                        {"failed": SplitStatus.failed.value, "split_id": str(split.id)},
                     )
             await send_alert("payout.failed", split_id=str(split.id), vendor_id=str(split.vendor_id), amount=str(split.amount))
             all_paid = False
 
-    final_status = "completed" if all_paid else "failed"
+    final_status = PaymentStatus.completed.value if all_paid else PaymentStatus.failed.value
     async with AsyncSessionLocal() as final_session:
         async with final_session.begin():
             await final_session.execute(

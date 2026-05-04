@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from app.config.database import AsyncSessionLocal
 from app.config.env import settings
+from app.models.schemas import KycStatus, SplitStatus
 from app.services import stitch_client
 from app.services.alert_service import send_alert
 from app.services.encryption_service import decrypt
@@ -22,11 +23,11 @@ async def _retry_failed_splits() -> None:
                 SELECT COUNT(*)
                 FROM splits s
                 JOIN vendors v ON v.id = s.vendor_id
-                WHERE s.status = 'failed'
+                WHERE s.status = :failed
                   AND s.retry_count < :max_retries
-                  AND v.kyc_status = 'verified'
+                  AND v.kyc_status = :verified
             """),
-            {"max_retries": settings.max_split_retries},
+            {"max_retries": settings.max_split_retries, "failed": SplitStatus.failed.value, "verified": KycStatus.verified.value},
         )
         count = count_row.scalar()
 
@@ -49,13 +50,13 @@ async def _retry_failed_splits() -> None:
                         FROM splits s
                         JOIN payments p ON p.id = s.payment_id
                         JOIN vendors v ON v.id = s.vendor_id
-                        WHERE s.status = 'failed'
+                        WHERE s.status = :failed
                           AND s.retry_count < :max_retries
-                          AND v.kyc_status = 'verified'
+                          AND v.kyc_status = :verified
                         FOR UPDATE OF s SKIP LOCKED
                         LIMIT 1
                     """),
-                    {"max_retries": settings.max_split_retries},
+                    {"max_retries": settings.max_split_retries, "failed": SplitStatus.failed.value, "verified": KycStatus.verified.value},
                 )
                 row = result.fetchone()
                 if not row:
@@ -71,8 +72,8 @@ async def _retry_failed_splits() -> None:
                         reference=f"{row.id}-attempt-{row.retry_count}",
                     )
                     await session.execute(
-                        text("UPDATE splits SET status = 'paid', payout_id = :payout_id WHERE id = :split_id"),
-                        {"payout_id": payout_id, "split_id": str(row.id)},
+                        text("UPDATE splits SET status = :paid, payout_id = :payout_id WHERE id = :split_id"),
+                        {"paid": SplitStatus.paid.value, "payout_id": payout_id, "split_id": str(row.id)},
                     )
                     logger.info(
                         "retry_succeeded",
@@ -83,8 +84,8 @@ async def _retry_failed_splits() -> None:
                     logger.exception("retry_failed", extra={"split_id": str(row.id), "retry_count": new_count})
                     if new_count >= settings.max_split_retries:
                         await session.execute(
-                            text("UPDATE splits SET status = 'dead', retry_count = :count WHERE id = :split_id"),
-                            {"count": new_count, "split_id": str(row.id)},
+                            text("UPDATE splits SET status = :dead, retry_count = :count WHERE id = :split_id"),
+                            {"dead": SplitStatus.dead.value, "count": new_count, "split_id": str(row.id)},
                         )
                         await send_alert("split.dead", split_id=str(row.id), retry_count=new_count)
                     else:

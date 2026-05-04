@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.schemas import PaymentCreate, PaymentResponse, SplitResponse
+from app.models.schemas import KycStatus, PaymentCreate, PaymentResponse, PaymentStatus, SplitResponse, SplitStatus
 from app.services import stitch_client
 from app.services.split_engine import SplitValidationError, calculate_splits
 
@@ -48,7 +48,7 @@ async def initiate_payment(
         raise HTTPException(status_code=404, detail="One or more vendor IDs not found for this platform")
 
     for v in vendors.values():
-        if v.kyc_status != "verified":
+        if v.kyc_status != KycStatus.verified.value:
             raise HTTPException(status_code=422, detail=f"Vendor {v.id} has not completed KYC")
 
     vendor_fee_overrides = {vid: row.fee_percentage for vid, row in vendors.items()}
@@ -79,11 +79,12 @@ async def initiate_payment(
         payment_row = await db.execute(
             text("""
                 INSERT INTO payments (id, platform_id, amount, currency, status, stitch_payment_id, checkout_url)
-                VALUES (:id, :platform_id, :amount, :currency, 'pending', :stitch_id, :checkout_url)
+                VALUES (:id, :platform_id, :amount, :currency, :pending, :stitch_id, :checkout_url)
                 RETURNING id, created_at
             """),
             {
                 "id": str(payment_uuid),
+                "pending": PaymentStatus.pending.value,
                 "platform_id": str(platform_id),
                 "amount": str(payload.total_amount),
                 "currency": payload.currency,
@@ -98,7 +99,7 @@ async def initiate_payment(
             row = await db.execute(
                 text("""
                     INSERT INTO splits (payment_id, vendor_id, amount, platform_fee, status)
-                    VALUES (:payment_id, :vendor_id, :net, :fee, 'pending')
+                    VALUES (:payment_id, :vendor_id, :net, :fee, :pending)
                     RETURNING id, created_at
                 """),
                 {
@@ -106,6 +107,7 @@ async def initiate_payment(
                     "vendor_id": str(s.vendor_id),
                     "net": str(s.net_amount),
                     "fee": str(s.platform_fee),
+                    "pending": SplitStatus.pending.value,
                 },
             )
             split_rows.append((s, row.fetchone()))
@@ -115,7 +117,7 @@ async def initiate_payment(
             platform_id=platform_id,
             amount=payload.total_amount,
             currency=payload.currency,
-            status="pending",
+            status=PaymentStatus.pending,
             checkout_url=checkout_url,
             stitch_payment_id=stitch_id,
             splits=[
@@ -125,7 +127,7 @@ async def initiate_payment(
                     gross_amount=s.gross_amount,
                     platform_fee=s.platform_fee,
                     net_amount=s.net_amount,
-                    status="pending",
+                    status=SplitStatus.pending,
                     payout_id=None,
                     created_at=row.created_at,
                 )

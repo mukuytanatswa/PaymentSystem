@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import text
 
 from app.config.database import AsyncSessionLocal
+from app.models.schemas import PaymentStatus, ReconciliationStatus, SplitStatus
 from app.services.alert_service import send_alert
 
 logger = logging.getLogger(__name__)
@@ -22,10 +23,10 @@ async def run_reconciliation(target_date: date) -> dict:
             text("""
                 SELECT COALESCE(SUM(amount), 0) AS total
                 FROM payments
-                WHERE status = 'completed'
+                WHERE status = :completed
                   AND (created_at AT TIME ZONE 'Africa/Johannesburg')::date = :target_date
             """),
-            {"target_date": target_date},
+            {"target_date": target_date, "completed": PaymentStatus.completed.value},
         )
         total_payins = payins_row.scalar()
 
@@ -37,11 +38,11 @@ async def run_reconciliation(target_date: date) -> dict:
                     COALESCE(SUM(s.platform_fee), 0) AS total_fees
                 FROM splits s
                 JOIN payments p ON p.id = s.payment_id
-                WHERE s.status = 'paid'
-                  AND p.status = 'completed'
+                WHERE s.status = :paid
+                  AND p.status = :completed
                   AND (p.created_at AT TIME ZONE 'Africa/Johannesburg')::date = :target_date
             """),
-            {"target_date": target_date},
+            {"target_date": target_date, "paid": SplitStatus.paid.value, "completed": PaymentStatus.completed.value},
         )
         paid = paid_row.fetchone()
         total_payouts = paid.total_payouts
@@ -55,18 +56,18 @@ async def run_reconciliation(target_date: date) -> dict:
                     COALESCE(s.amount + s.platform_fee, 0) AS held
                 FROM splits s
                 JOIN payments p ON p.id = s.payment_id
-                WHERE s.status IN ('pending', 'failed')
-                  AND p.status = 'completed'
+                WHERE s.status IN (:s_pending, :s_failed)
+                  AND p.status = :completed
                   AND (p.created_at AT TIME ZONE 'Africa/Johannesburg')::date = :target_date
             """),
-            {"target_date": target_date},
+            {"target_date": target_date, "s_pending": SplitStatus.pending.value, "s_failed": SplitStatus.failed.value, "completed": PaymentStatus.completed.value},
         )
         soft_splits = soft_rows.fetchall()
         soft_difference = sum(r.held for r in soft_splits)
         soft_split_ids = [str(r.id) for r in soft_splits]
 
         hard_difference = total_payins - (total_payouts + total_fees + soft_difference)
-        status = "balanced" if hard_difference == 0 else "unbalanced"
+        status = ReconciliationStatus.balanced.value if hard_difference == 0 else ReconciliationStatus.unbalanced.value
 
         await session.execute(
             text("""
@@ -114,10 +115,10 @@ async def run_reconciliation(target_date: date) -> dict:
                     FROM splits s
                     JOIN payments p ON p.id = s.payment_id
                     WHERE p.status = 'completed'
-                      AND s.status NOT IN ('paid')
+                      AND s.status NOT IN (:paid)
                       AND (p.created_at AT TIME ZONE 'Africa/Johannesburg')::date = :target_date
                 """),
-                {"target_date": target_date},
+                {"target_date": target_date, "paid": SplitStatus.paid.value},
             )
             unresolved_split_ids = [str(r.id) for r in unresolved_rows.fetchall()]
 
