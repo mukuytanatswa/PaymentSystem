@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession) -> dict:
+    if payload.type == "payment_initiation_request.failed":
+        stitch_payment_id = payload.data.get("id")
+        if stitch_payment_id:
+            async with db.begin():
+                await db.execute(
+                    text("UPDATE payments SET status = 'failed' WHERE stitch_payment_id = :id AND status = 'pending'"),
+                    {"id": stitch_payment_id},
+                )
+            logger.info("payment_marked_failed", extra={"stitch_payment_id": stitch_payment_id})
+        return {"status": "marked_failed"}
+
     if payload.type != "payment_initiation_request.completed":
         return {"status": "ignored"}
 
