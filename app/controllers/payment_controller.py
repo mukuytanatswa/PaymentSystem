@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 async def initiate_payment(
     payload: PaymentCreate,
     platform_id: UUID,
+    platform_name: str,
     platform_fee_percentage,
     db: AsyncSession,
     idempotency_key: str | None = None,
@@ -69,7 +70,7 @@ async def initiate_payment(
     stitch_id, checkout_url = await stitch_client.create_payment(
         amount=payload.total_amount,
         currency=payload.currency,
-        reference=f"QP-ref",
+        reference=f"{platform_name}-{str(payment_uuid)[:8]}",
         payment_id=str(payment_uuid),
     )
 
