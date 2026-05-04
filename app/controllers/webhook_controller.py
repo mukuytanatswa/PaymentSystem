@@ -59,7 +59,7 @@ async def handle_stitch_webhook(payload: StitchWebhookPayload, db: AsyncSession)
                 currency=payment.currency,
                 bank_account=split.bank_account,
                 bank_code=split.bank_code,
-                reference=str(split.id),
+                reference=f"{split.id}-attempt-0",
             )
             async with AsyncSessionLocal() as split_session:
                 async with split_session.begin():
