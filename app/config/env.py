@@ -1,9 +1,19 @@
 from decimal import Decimal
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     database_url: str
+
+    @field_validator('database_url', mode='before')
+    @classmethod
+    def fix_database_url_scheme(cls, v: str) -> str:
+        if v.startswith('postgres://'):
+            return v.replace('postgres://', 'postgresql+asyncpg://', 1)
+        if v.startswith('postgresql://'):
+            return v.replace('postgresql://', 'postgresql+asyncpg://', 1)
+        return v
     stitch_client_id: str
     stitch_client_secret: str
     stitch_redirect_uri: str
