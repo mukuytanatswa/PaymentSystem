@@ -20,6 +20,7 @@ class PaymentStatus(str, Enum):
     processing = "processing"
     completed = "completed"
     failed = "failed"
+    refunded = "refunded"
 
 
 class SplitStatus(str, Enum):
@@ -93,6 +94,25 @@ class PaymentResponse(BaseModel):
     checkout_url: Optional[str]
     stitch_payment_id: Optional[str]
     splits: list[SplitResponse]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Refunds ---
+
+class RefundCreate(BaseModel):
+    reason: str = Field(..., min_length=1)
+
+
+class RefundResponse(BaseModel):
+    id: UUID
+    payment_id: UUID
+    reason: str
+    amount: Decimal
+    status: str
+    initiated_by: str
+    stitch_reverse_id: Optional[str]
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

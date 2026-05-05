@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.database import get_db
-from app.controllers import payment_controller
-from app.models.schemas import PaymentCreate, PaymentResponse
+from app.controllers import payment_controller, refund_controller
+from app.models.schemas import PaymentCreate, PaymentResponse, RefundCreate, RefundResponse
 
 router = APIRouter(prefix="/api/v1/payments", tags=["payments"])
 
@@ -34,3 +34,19 @@ async def get_payment(
     db: AsyncSession = Depends(get_db),
 ):
     return await payment_controller.get_payment(payment_id, request.state.platform_id, db)
+
+
+@router.post("/{payment_id}/refund", response_model=RefundResponse, status_code=200)
+async def refund_payment(
+    payment_id: UUID,
+    payload: RefundCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    return await refund_controller.initiate_refund(
+        payment_id=payment_id,
+        platform_id=request.state.platform_id,
+        platform_name=request.state.platform_name,
+        payload=payload,
+        db=db,
+    )

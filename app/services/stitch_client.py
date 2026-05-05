@@ -47,6 +47,17 @@ mutation CreateDisbursement($input: DisbursementCreateInput!) {
 }
 """
 
+_REVERSE_DISBURSEMENT_MUTATION = """
+mutation ReverseDisbursement($input: DisbursementReverseInput!) {
+  disbursementReverse(input: $input) {
+    disbursement {
+      id
+      status
+    }
+  }
+}
+"""
+
 
 async def _get_access_token() -> str:
     if _token_cache["token"] and time.time() < _token_cache["expires_at"] - 60:
@@ -161,3 +172,12 @@ async def create_payout(
         },
     )
     return data["disbursementCreate"]["disbursement"]["id"]
+
+
+async def reverse_disbursement(disbursement_id: str) -> str:
+    """Reverses a disbursement. Returns the Stitch reverse disbursement id."""
+    data = await _graphql(
+        _REVERSE_DISBURSEMENT_MUTATION,
+        {"input": {"disbursementId": disbursement_id}},
+    )
+    return data["disbursementReverse"]["disbursement"]["id"]
