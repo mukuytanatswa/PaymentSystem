@@ -140,7 +140,7 @@ async def initiate_payment(
             await db.execute(
                 text("""
                     INSERT INTO idempotency_keys (key, platform_id, response)
-                    VALUES (:key, :platform_id, :response::jsonb)
+                    VALUES (:key, :platform_id, CAST(:response AS jsonb))
                 """),
                 {
                     "key": idempotency_key,

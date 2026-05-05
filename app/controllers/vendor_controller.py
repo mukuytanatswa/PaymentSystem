@@ -20,7 +20,7 @@ async def _write_audit_log(
     await db.execute(
         text("""
             INSERT INTO audit_log (event_type, platform_id, vendor_id, metadata)
-            VALUES (:event_type, :platform_id, :vendor_id, :metadata::jsonb)
+            VALUES (:event_type, :platform_id, :vendor_id, CAST(:metadata AS jsonb))
         """),
         {
             "event_type": event_type,
@@ -67,7 +67,7 @@ async def register_vendor(
         await db.execute(
             text("""
                 INSERT INTO kyc_records (vendor_id, status, verification_result)
-                VALUES (:vendor_id, :status, :result::jsonb)
+                VALUES (:vendor_id, :status, CAST(:result AS jsonb))
             """),
             {
                 "vendor_id": str(vendor.id),
