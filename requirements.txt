@@ -11,3 +11,4 @@ slowapi==0.1.9
 tenacity==9.0.0
 python-json-logger==2.0.7
 cryptography==43.0.3
+sentry-sdk[fastapi]==2.17.0

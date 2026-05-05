@@ -5,24 +5,36 @@ from contextlib import asynccontextmanager, suppress
 
 import httpx
 import pythonjsonlogger.jsonlogger as jsonlogger
+import sentry_sdk
 from fastapi import Depends, Request
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.config.database import AsyncSessionLocal, get_db
+from app.config.env import settings
 from app.config.logging import RequestIdFilter
 from app.middleware.auth import ApiKeyMiddleware
 from app.middleware.error_handler import global_exception_handler, rate_limit_handler
 from app.middleware.rate_limiter import limiter
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logger import RequestLoggerMiddleware
-from app.routes import payments, reconciliation, vendors, webhooks
+from app.routes import admin, payments, reconciliation, vendors, webhooks
 from app.services.reconciliation_service import start_reconciliation_worker
 from app.services.retention_service import start_retention_worker
 from app.services.retry_service import start_retry_worker
+
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        integrations=[StarletteIntegration(), FastApiIntegration()],
+        traces_sample_rate=0.1,
+    )
 
 # Structured JSON logging
 _handler = logging.StreamHandler()
@@ -69,6 +81,7 @@ app.include_router(payments.router)
 app.include_router(vendors.router)
 app.include_router(webhooks.router)
 app.include_router(reconciliation.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", tags=["health"])

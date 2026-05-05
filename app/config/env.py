@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     max_split_retries: int = 3
     max_retry_queue_size: int = 50
     dlq_alert_webhook_url: str = ""
+    sentry_dsn: str = ""
     default_fee_percentage: Decimal = Decimal("2.5")
     environment: str = "development"
 
