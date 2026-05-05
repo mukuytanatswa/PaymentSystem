@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: splyt_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/splyt_test
+          STITCH_CLIENT_ID: ci-stitch-id
+          STITCH_CLIENT_SECRET: ci-stitch-secret
+          STITCH_REDIRECT_URI: http://localhost/callback
+          SMILE_IDENTITY_API_KEY: ci-smile-key
+          SMILE_IDENTITY_PARTNER_ID: ci-partner
+          STITCH_WEBHOOK_SECRET: ci-webhook-secret
+          ADMIN_API_KEY: ci-admin-key
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: pytest tests/unit/ -q
+
+      - name: Run integration tests
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/splyt_test
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/splyt_test
+          STITCH_CLIENT_ID: ci-stitch-id
+          STITCH_CLIENT_SECRET: ci-stitch-secret
+          STITCH_REDIRECT_URI: http://localhost/callback
+          SMILE_IDENTITY_API_KEY: ci-smile-key
+          SMILE_IDENTITY_PARTNER_ID: ci-partner
+          STITCH_WEBHOOK_SECRET: ci-webhook-secret
+          ADMIN_API_KEY: ci-admin-key
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: pytest tests/integration/ -q
